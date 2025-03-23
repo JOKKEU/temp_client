@@ -1,6 +1,60 @@
 #include "../hd/client.h"
 
 
+static void get_screen(struct _client* client)
+{
+	Display* display = XOpenDisplay(NULL);
+	int width, height;
+	
+	if (!display)
+	{
+		perror("failed create display");
+		return;
+	}
+	
+	Window root = DefaultRootWindow(display);
+	XWindowAttributes attrs;
+	XGetWindowAttributes(display, root, &attrs);
+	
+	Screen* screen;
+	screen = DefaultScreenOfDisplay(display);
+	width = screen->width;
+    	height = screen->height;
+    	
+    	XImage* image = XGetImage(display, root, 0, 0, width, height, AllPlanes, ZPixmap);
+    	if (!image)
+    	{
+    		LOG("Unable to get image\n");
+    		return;
+    	}
+    	
+    	free(client->buffer_for_server);
+    	client->buffer_for_server = (char*)malloc(sizeof(char) * 3 * width * height);
+    	if (!client->buffer_for_server)
+    	{
+    		perror("failed alloc buffer_for_server in get screen");
+    		free(client->buffer_for_server);
+    		return;
+    		
+    	}
+    	
+    	for (int y = 0; y < height; ++y)
+    	{
+    		for (int x = 0; x < width; ++x)
+    		{
+    			uint32_t pixel = XGetPixel(image, x, y);
+            		client->buffer_for_server[(y * (width) + x) * 3 + 0] = (pixel & image->red_mask) >> 16;   // R
+            		client->buffer_for_server[(y * (width) + x) * 3 + 1] = (pixel & image->green_mask) >> 8;  // G
+            		client->buffer_for_server[(y * (width) + x) * 3 + 2] = (pixel & image->blue_mask);        // B
+    		}
+    	}
+    	
+    	XDestroyImage(image);
+    	XCloseDisplay(display);
+    	
+}
+
+
 
 int client(void)
 {
@@ -39,15 +93,15 @@ int client(void)
 		return EXIT_FAILURE;
 	}
 	
-	packet->server_packet_source = (struct sockaddr_in*)malloc(sizeof (struct sockaddr_in));
+	packet->client_packet_source = (struct sockaddr_in*)malloc(sizeof (struct sockaddr_in));
 	if (!packet->packet_source)
 	{
-		perror("failed alloc server_packet_source");
+		perror("failed alloc client_packet_source");
 		return EXIT_FAILURE;
 	}
 	
 	packet->packet_source_len = sizeof(struct sockaddr_in);
-    	packet->server_packet_source_len = sizeof(struct sockaddr_in);
+    	packet->client_packet_source_len = sizeof(struct sockaddr_in);
 	
 	packet->buffer = (char*)malloc(sizeof (char) * BUFFER_SIZE);
 	if (!packet->buffer)
@@ -56,11 +110,18 @@ int client(void)
 		return EXIT_FAILURE;
 	}
 	
+	client->buffer_for_server = (char*)malloc(sizeof (char) * BUFFER_SIZE);
+	if (!client->buffer_for_server)
+	{
+		perror("failed alloc buffer_for_server");
+		return EXIT_FAILURE;
+	}
 	
-	memset(packet->server_packet_source, 0, packet->server_packet_source_len);
-    	packet->server_packet_source->sin_family = AF_INET;
-    	packet->server_packet_source->sin_port = htons(PORT);
-    	packet->server_packet_source->sin_addr.s_addr = INADDR_ANY;
+	
+	memset(packet->client_packet_source, 0, packet->client_packet_source_len);
+    	packet->client_packet_source->sin_family = AF_INET;
+    	packet->client_packet_source->sin_port = htons(PORT);
+    	packet->client_packet_source->sin_addr.s_addr = INADDR_ANY;
 	
 			
 	client->sockfd = socket(client->sock_param->domain, client->sock_param->type, client->sock_param->protocol);
@@ -70,7 +131,7 @@ int client(void)
 		return EXIT_FAILURE;
 	}
 	
-	if (bind(client->sockfd, (const struct sockaddr*)packet->server_packet_source, packet->server_packet_source_len) < 0)
+	if (bind(client->sockfd, (const struct sockaddr*)packet->client_packet_source, packet->client_packet_source_len) < 0)
 	{
 		perror("failed bind socket");
         	close(client->sockfd);
@@ -97,38 +158,24 @@ int client(void)
 		if (strcmp(packet->buffer, request) == 0)
 		{
 			sendto(client->sockfd, response, strlen(response), 0, (struct sockaddr*)packet->packet_source, packet->packet_source_len);
-			LOG("Response message: %s to %s\n", response, inet_ntoa(packet->packet_source->sin_addr));
+			LOG("Response 'ready' message: %s to %s\n", response, inet_ntoa(packet->packet_source->sin_addr));
 		} 
+		
+		
+		else if (strcmp(packet->buffer, "getscreen") == 0)
+		{
+			get_screen(client);
+			sendto(client->sockfd, client->buffer_for_server, strlen(response), 0, (struct sockaddr*)packet->packet_source, packet->packet_source_len);
+			LOG("Response 'screenshot' buffer to %s\n", inet_ntoa(packet->packet_source->sin_addr));
+		}
 	}
 		
 	free(packet->buffer);
     	free(packet->packet_source);
-    	free(packet->server_packet_source);
+    	free(packet->client_packet_source);
     	free(packet);
     	close(client->sockfd);
     	free(client);
 	
 	return EXIT_SUCCESS;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
