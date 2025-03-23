@@ -12,6 +12,10 @@
 #include <termios.h>
 #include <sys/ioctl.h>
 
+#include <X11/Xlib.h>
+#include <X11/Xutil.h>
+#include <png.h>
+
 #include <pthread.h>
 #include <sched.h>
 
@@ -30,7 +34,7 @@
 #include <asm-generic/param.h>
 
 #define true 				1
-#define BUFFER_SIZE			1024
+#define BUFFER_SIZE			8192
 
 #ifndef PORT
 	#define PORT 8080
@@ -42,9 +46,9 @@
 struct _packet
 {
 	struct sockaddr_in*	packet_source;
-	struct sockaddr_in*	server_packet_source;
+	struct sockaddr_in*	client_packet_source;
 	socklen_t		packet_source_len;
-	socklen_t		server_packet_source_len;
+	socklen_t		client_packet_source_len;
 	
 	char*			buffer;
 };
@@ -63,14 +67,14 @@ struct socket_param
 struct _client
 {
 	size_t			port;
-	char*			buffer_for_client;
 	char			ip_server[INET_ADDRSTRLEN];
 	struct socket_param*	sock_param;
 	int			sockfd;
+	
+	char*			buffer_for_server;
 };
 
 
 extern int client(void);
 
 #endif // __CLIENT_H__
-
